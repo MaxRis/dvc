@@ -20,6 +20,14 @@ from dvc.remote.gdrive.utils import (
     shared_token_warning,
 )
 from dvc.remote.gdrive.exceptions import GDriveError, GDriveResourceNotFound
+from dvc.exceptions import DvcException
+
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
+
+from concurrent.futures import ThreadPoolExecutor
+import time
+from dvc.progress import progress
 
 
 logger = logging.getLogger(__name__)
@@ -90,49 +98,57 @@ class RemoteGDrive(RemoteBASE):
     DEFAULT_CREDENTIALPATH = os.path.join(
         os.path.dirname(__file__), "google-dvc-client-id.json"
     )
+    GOOGLE_AUTH_SETTINGS_PATH = os.path.join(
+        os.path.dirname(__file__), "settings.yaml"
+    )
+    SAVED_USER_CREDENTIALS_FILE = os.path.join(
+        os.path.dirname(__file__), "user-credentials"
+    )
 
     def __init__(self, repo, config):
         super(RemoteGDrive, self).__init__(repo, config)
         self.path_info = self.path_cls(config[Config.SECTION_REMOTE_URL])
         self.root = self.path_info.netloc.lower()
-        if self.root == self.SPACE_APPDATA.lower():
-            default_scopes = self.SCOPE_APPDATA
-            space = self.SPACE_APPDATA
-        else:
-            default_scopes = self.SCOPE_DRIVE
-            space = self.SPACE_DRIVE
-        if Config.SECTION_GDRIVE_CREDENTIALPATH not in config:
-            shared_token_warning()
-            credentialpath = config.get(
-                Config.SECTION_GDRIVE_CREDENTIALPATH,
-                self.DEFAULT_CREDENTIALPATH,
-            )
-        scopes = config.get(Config.SECTION_GDRIVE_SCOPES, default_scopes)
-        # scopes should be a list and it is space-delimited in all
-        # configs, and `.split()` also works for a single-element list
-        scopes = scopes.split()
 
-        core_config = self.repo.config.config[Config.SECTION_CORE]
-        oauth2_flow_runner = core_config.get(
-            Config.SECTION_CORE_OAUTH2_FLOW_RUNNER, "console"
-        )
-
-        self.client = GDriveClient(
-            space,
-            config.get(Config.SECTION_GDRIVE_OAUTH_ID, self.DEFAULT_OAUTH_ID),
-            credentialpath,
-            scopes,
-            oauth2_flow_runner,
-        )
+        GoogleAuth.DEFAULT_SETTINGS['client_config_backend'] = "settings"
+        gauth = GoogleAuth(settings_file=self.GOOGLE_AUTH_SETTINGS_PATH)
+        gauth.CommandLineAuth()
+        self.client = GoogleDrive(gauth)
 
     def get_file_checksum(self, path_info):
+        raise DvcException("get_file_checksum my not impl", self.scheme)
         metadata = self.client.get_metadata(path_info, fields=["md5Checksum"])
         return metadata["md5Checksum"]
 
+    def get_file_id(self, path_info, create=False):
+        file_id = ""
+        parent_id = path_info.netloc
+        file_list = self.client.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
+        parts = path_info.path.split("/")
+        #print("path parts", parts)
+        for part in parts:
+            file_id = ""
+            for f in file_list:
+                if f['title'] == part:
+                    #print("Found path part:", part)
+                    file_id = f['id']
+                    file_list = self.client.ListFile({'q': "'%s' in parents and trashed=false" % file_id}).GetList()
+                    parent_id = f['id']
+                    break
+            if (file_id == ""):
+                if create:
+                    gdrive_file = self.client.CreateFile({'title': part, "parents" : [{"id" : parent_id}], "mimeType": "application/vnd.google-apps.folder"})
+                    gdrive_file.Upload()
+                    file_id = gdrive_file['id']
+                else:
+                    break
+        return file_id
+
     def exists(self, path_info):
-        return self.client.exists(path_info)
+        return self.get_file_id(path_info) != ""
 
     def batch_exists(self, path_infos, callback):
+        print("batch_exists check for path info: ", path_infos)
         results = []
         for path_info in path_infos:
             results.append(self.exists(path_info))
@@ -140,6 +156,7 @@ class RemoteGDrive(RemoteBASE):
         return results
 
     def list_cache_paths(self):
+        raise DvcException("list_cache_paths my not impl", self.scheme)
         try:
             root = self.client.get_metadata(self.path_info)
         except GDriveResourceNotFound as e:
@@ -151,9 +168,11 @@ class RemoteGDrive(RemoteBASE):
 
     @only_once
     def mkdir(self, parent, name):
+        raise DvcException("mkdir my not impl", self.scheme)
         return self.client.mkdir(parent, name)
 
     def makedirs(self, path_info):
+        raise DvcException("makedirs my not impl", self.scheme)
         parent = path_info.netloc
         parts = iter(path_info.path.split("/"))
         current_path = ["gdrive://" + path_info.netloc]
@@ -179,24 +198,28 @@ class RemoteGDrive(RemoteBASE):
         return parent
 
     def _upload(self, from_file, to_info, name, no_progress_bar):
-
-        dirname = to_info.parent.path
+        print("Upload %s %s %s" % (from_file, to_info, name))
+        
+        dirname = to_info.parent
         if dirname:
-            try:
-                parent = self.client.get_metadata(to_info.parent)
-            except GDriveResourceNotFound:
-                parent = self.makedirs(to_info.parent)
+            parent_id = self.get_file_id(dirname, True)
         else:
-            parent = to_info.netloc
+            parent_id = to_info.netloc
+
+        print("Parent id:", parent_id)
+        file1 = self.client.CreateFile({'title': to_info.name, "parents" : [{"id" : parent_id}]})
 
         from_file = open(from_file, "rb")
         if not no_progress_bar:
             from_file = TrackFileReadProgress(name, from_file)
 
-        try:
-            self.client.upload(parent, to_info, from_file)
-        finally:
-            from_file.close()
+        file1.content = from_file
+        file1.Upload()
+        from_file.close()
 
     def _download(self, from_info, to_file, name, no_progress_bar):
-        self.client.download(from_info, to_file, name, no_progress_bar)
+        file_id = self.get_file_id(from_info)
+        gdrive_file = self.client.CreateFile({'id': file_id})
+        gdrive_file.GetContentFile(to_file)
+        if (not no_progress_bar):
+            progress.update_target(name, 1, 1)

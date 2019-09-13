@@ -1,1 +1,2 @@
 include dvc/remote/gdrive/google-dvc-client-id.json
+include dvc/remote/gdrive/settings.yaml
