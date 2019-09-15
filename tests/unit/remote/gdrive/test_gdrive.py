@@ -19,19 +19,6 @@ def test_init_drive(repo):
     gdrive = RemoteGDrive(repo, {"url": url})
     assert gdrive.root == "root"
     assert str(gdrive.path_info) == url
-    assert gdrive.client.scopes == ["https://www.googleapis.com/auth/drive"]
-    assert gdrive.client.space == RemoteGDrive.SPACE_DRIVE
-
-
-def test_init_appfolder(repo):
-    url = "gdrive://appdatafolder/data"
-    gdrive = RemoteGDrive(repo, {"url": url})
-    assert gdrive.root == "appdatafolder"
-    assert str(gdrive.path_info) == url
-    assert gdrive.client.scopes == [
-        "https://www.googleapis.com/auth/drive.appdata"
-    ]
-    assert gdrive.client.space == RemoteGDrive.SPACE_APPDATA
 
 
 def test_init_folder_id(repo):
@@ -39,8 +26,6 @@ def test_init_folder_id(repo):
     gdrive = RemoteGDrive(repo, {"url": url})
     assert gdrive.root == "folder_id"
     assert str(gdrive.path_info) == url
-    assert gdrive.client.scopes == ["https://www.googleapis.com/auth/drive"]
-    assert gdrive.client.space == "drive"
 
 
 def test_get_file_checksum(gdrive, mocked_get_metadata):

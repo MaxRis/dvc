@@ -46,7 +46,7 @@ def test_gdrive_push_pull(repo_dir, dvc_repo, base_url):
     paths = [i.parts[-2:] for i in paths]
 
     # check that files are correctly uploaded
-    testdir_meta = gdrive.client.get_metadata(gdrive.path_info)
+    testdir_meta = gdrive.gdrive.get_metadata(gdrive.path_info)
     q = "'{}' in parents".format(testdir_meta["id"])
     found = list(gdrive.client.search(add_params={"q": q}))
     assert set(i["name"] for i in found) == set([i[0] for i in paths])
@@ -73,7 +73,7 @@ def test_gdrive_push_pull(repo_dir, dvc_repo, base_url):
     assert set(files) < set(os.listdir("."))
 
     # remove the temporary directory on Google Drive
-    resp = gdrive.client.request(
+    resp = gdrive.gdrive.request(
         "DELETE", "drive/v3/files/" + testdir_meta["id"]
     )
     print("Delete temp dir: HTTP {}".format(resp.status_code))

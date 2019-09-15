@@ -4,10 +4,11 @@ import os
 import logging
 
 try:
-    import google_auth_oauthlib
-    from dvc.remote.gdrive.client import GDriveClient
+    from pydrive.auth import GoogleAuth
+    from pydrive.drive import GoogleDrive
 except ImportError:
-    google_auth_oauthlib = None
+    GoogleAuth = None
+    GoogleDrive = None
 
 from dvc.scheme import Schemes
 from dvc.path_info import CloudURLInfo
@@ -19,14 +20,7 @@ from dvc.remote.gdrive.utils import (
     metadata_isdir,
     shared_token_warning,
 )
-from dvc.remote.gdrive.exceptions import GDriveError, GDriveResourceNotFound
 from dvc.exceptions import DvcException
-
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-
-from concurrent.futures import ThreadPoolExecutor
-import time
 from dvc.progress import progress
 
 
@@ -44,13 +38,11 @@ class RemoteGDrive(RemoteBASE):
 
     ## Some notes on Google Drive design
 
-    Google Drive differs from S3 and GS remotes - it identifies the resources
-    by IDs instead of paths.
+    Google Drive identifies the resources by IDs instead of paths.
 
     Folders are regular resources with an `application/vnd.google-apps.folder`
     MIME type. Resource can have multiple parent folders, and also there could
-    be multiple resources with the same name linked to a single folder, so
-    files could be duplicated.
+    be multiple resources with the same name linked to a single folder.
 
     There are multiple root folders accessible from a single user account:
     - `root` (special ID) - alias for the "My Drive" folder
@@ -81,12 +73,8 @@ class RemoteGDrive(RemoteBASE):
     scheme = Schemes.GDRIVE
     path_cls = GDriveURLInfo
     REGEX = r"^gdrive://.*$"
-    REQUIRES = {"google-auth-oauthlib": google_auth_oauthlib}
+    REQUIRES = {"pydrive": GoogleAuth}
     PARAM_CHECKSUM = "md5Checksum"
-    SPACE_DRIVE = "drive"
-    SCOPE_DRIVE = "https://www.googleapis.com/auth/drive"
-    SPACE_APPDATA = "appDataFolder"
-    SCOPE_APPDATA = "https://www.googleapis.com/auth/drive.appdata"
     DEFAULT_OAUTH_ID = "default"
 
     # Default credential is needed to show the string of "Data Version
@@ -109,21 +97,24 @@ class RemoteGDrive(RemoteBASE):
         super(RemoteGDrive, self).__init__(repo, config)
         self.path_info = self.path_cls(config[Config.SECTION_REMOTE_URL])
         self.root = self.path_info.netloc.lower()
+        self.gdrive = self.drive()
 
+    def drive(self):
         GoogleAuth.DEFAULT_SETTINGS['client_config_backend'] = "settings"
         gauth = GoogleAuth(settings_file=self.GOOGLE_AUTH_SETTINGS_PATH)
         gauth.CommandLineAuth()
-        self.client = GoogleDrive(gauth)
+        return GoogleDrive(gauth)
 
     def get_file_checksum(self, path_info):
-        raise DvcException("get_file_checksum my not impl", self.scheme)
-        metadata = self.client.get_metadata(path_info, fields=["md5Checksum"])
-        return metadata["md5Checksum"]
+        file_id = self.get_path_id(path_info)
+        gdrive_file = self.gdrive.CreateFile({'id': file_id})
+        print("!!!!!Checksum:",gdrive_file['md5Checksum'])
+        return gdrive_file['md5Checksum']
 
-    def get_file_id(self, path_info, create=False):
+    def get_path_id(self, path_info, create=False):
         file_id = ""
         parent_id = path_info.netloc
-        file_list = self.client.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
+        file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
         parts = path_info.path.split("/")
         #print("path parts", parts)
         for part in parts:
@@ -132,12 +123,12 @@ class RemoteGDrive(RemoteBASE):
                 if f['title'] == part:
                     #print("Found path part:", part)
                     file_id = f['id']
-                    file_list = self.client.ListFile({'q': "'%s' in parents and trashed=false" % file_id}).GetList()
+                    file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % file_id}).GetList()
                     parent_id = f['id']
                     break
             if (file_id == ""):
                 if create:
-                    gdrive_file = self.client.CreateFile({'title': part, "parents" : [{"id" : parent_id}], "mimeType": "application/vnd.google-apps.folder"})
+                    gdrive_file = self.gdrive.CreateFile({'title': part, "parents" : [{"id" : parent_id}], "mimeType": "application/vnd.google-apps.folder"})
                     gdrive_file.Upload()
                     file_id = gdrive_file['id']
                 else:
@@ -145,7 +136,7 @@ class RemoteGDrive(RemoteBASE):
         return file_id
 
     def exists(self, path_info):
-        return self.get_file_id(path_info) != ""
+        return self.get_path_id(path_info) != ""
 
     def batch_exists(self, path_infos, callback):
         print("batch_exists check for path info: ", path_infos)
@@ -158,18 +149,18 @@ class RemoteGDrive(RemoteBASE):
     def list_cache_paths(self):
         raise DvcException("list_cache_paths my not impl", self.scheme)
         try:
-            root = self.client.get_metadata(self.path_info)
+            root = self.gdrive.get_metadata(self.path_info)
         except GDriveResourceNotFound as e:
             logger.debug("list_cache_paths: {}".format(e))
         else:
             prefix = self.path_info.path
-            for i in self.client.list_children(root["id"]):
+            for i in self.gdrive.list_children(root["id"]):
                 yield prefix + "/" + i
 
     @only_once
     def mkdir(self, parent, name):
         raise DvcException("mkdir my not impl", self.scheme)
-        return self.client.mkdir(parent, name)
+        return self.gdrive.mkdir(parent, name)
 
     def makedirs(self, path_info):
         raise DvcException("makedirs my not impl", self.scheme)
@@ -178,7 +169,7 @@ class RemoteGDrive(RemoteBASE):
         current_path = ["gdrive://" + path_info.netloc]
         for part in parts:
             try:
-                metadata = self.client.get_metadata(
+                metadata = self.gdrive.get_metadata(
                     self.path_cls.from_parts(
                         self.scheme, parent, path="/" + part
                     )
@@ -202,12 +193,12 @@ class RemoteGDrive(RemoteBASE):
         
         dirname = to_info.parent
         if dirname:
-            parent_id = self.get_file_id(dirname, True)
+            parent_id = self.get_path_id(dirname, True)
         else:
             parent_id = to_info.netloc
 
         print("Parent id:", parent_id)
-        file1 = self.client.CreateFile({'title': to_info.name, "parents" : [{"id" : parent_id}]})
+        file1 = self.gdrive.CreateFile({'title': to_info.name, "parents" : [{"id" : parent_id}]})
 
         from_file = open(from_file, "rb")
         if not no_progress_bar:
@@ -218,8 +209,8 @@ class RemoteGDrive(RemoteBASE):
         from_file.close()
 
     def _download(self, from_info, to_file, name, no_progress_bar):
-        file_id = self.get_file_id(from_info)
-        gdrive_file = self.client.CreateFile({'id': file_id})
+        file_id = self.get_path_id(from_info)
+        gdrive_file = self.gdrive.CreateFile({'id': file_id})
         gdrive_file.GetContentFile(to_file)
         if (not no_progress_bar):
             progress.update_target(name, 1, 1)
