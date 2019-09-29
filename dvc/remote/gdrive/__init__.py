@@ -98,6 +98,9 @@ class RemoteGDrive(RemoteBASE):
         self.path_info = self.path_cls(config[Config.SECTION_REMOTE_URL])
         self.root = self.path_info.netloc.lower()
         self.gdrive = self.drive()
+        self.root_content_cached = False
+        self.root_dirs_list = {}
+        self.cache_root_content()
 
     def drive(self):
         GoogleAuth.DEFAULT_SETTINGS['client_config_backend'] = "settings"
@@ -106,16 +109,35 @@ class RemoteGDrive(RemoteBASE):
         return GoogleDrive(gauth)
 
     def get_file_checksum(self, path_info):
+        raise DvcException("get_file_checksum my not impl", self.scheme)
         file_id = self.get_path_id(path_info)
         gdrive_file = self.gdrive.CreateFile({'id': file_id})
         print("!!!!!Checksum:",gdrive_file['md5Checksum'])
         return gdrive_file['md5Checksum']
 
+    def cache_root_content(self):
+        print("get_path_id %d" % self.root_content_cached)
+        if not self.root_content_cached:
+            for dirs_list in self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % self.path_info.netloc, 'maxResults': 256}):
+                for dir1 in dirs_list:
+                    print("List dir %s" % dir1['title'])
+                    self.root_dirs_list[dir1['title']] = dir1['id']
+            self.root_content_cached = True
+            print("All root dirs are cached %d" % self.root_content_cached)
+
     def get_path_id(self, path_info, create=False):
         file_id = ""
-        parent_id = path_info.netloc
-        file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
         parts = path_info.path.split("/")
+
+        if parts and (parts[0] in self.root_dirs_list):
+            print('%s found in cache and parent_id now is %s' % (parts[0], self.root_dirs_list[parts[0]]))
+            parent_id = self.root_dirs_list[parts[0]]
+            file_id = self.root_dirs_list[parts[0]]
+            parts.pop(0)
+        else:
+            parent_id = path_info.netloc
+        file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
+
         #print("path parts", parts)
         for part in parts:
             file_id = ""
