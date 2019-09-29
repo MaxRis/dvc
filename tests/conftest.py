@@ -18,7 +18,11 @@ os.environ[cast_bytes_py2("DVC_TEST")] = cast_bytes_py2("true")
 
 
 # Make DVC tests use separate OAuth token to access Google Drive
-RemoteGDrive.DEFAULT_OAUTH_ID = "test"
+def skip_pydrive_init(self):
+    pass
+
+
+RemoteGDrive.init_gdrive = skip_pydrive_init
 
 
 @pytest.fixture(autouse=True)

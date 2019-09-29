@@ -40,10 +40,12 @@ class RemoteGDrive(RemoteBASE):
     def __init__(self, repo, config):
         super(RemoteGDrive, self).__init__(repo, config)
         self.path_info = self.path_cls(config[Config.SECTION_REMOTE_URL])
-        self.root = self.path_info.netloc.lower()
-        self.gdrive = self.drive()
         self.root_content_cached = False
         self.root_dirs_list = {}
+        self.init_gdrive()
+
+    def init_gdrive(self):
+        self.gdrive = self.drive()
         self.cache_root_content()
 
     def drive(self):

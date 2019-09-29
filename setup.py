@@ -71,7 +71,7 @@ else:
 
 # Extra dependencies for remote integrations
 gs = ["google-cloud-storage==1.13.0"]
-gdrive = ["google-auth-oauthlib==0.3.0"]
+gdrive = ["pydrive==1.3.1"]
 s3 = ["boto3==1.9.115"]
 azure = ["azure-storage-blob==2.0.1"]
 oss = ["oss2==2.6.1"]

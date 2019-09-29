@@ -50,26 +50,6 @@ def only_once(func):
     return wrapped
 
 
-def response_error_message(response):
-    try:
-        message = response.json()["error"]["message"]
-    except (TypeError, KeyError):
-        message = response.text
-    return "HTTP {}: {}".format(response.status_code, message)
-
-
-def response_is_ratelimit(response):
-    if response.status_code not in (403, 429):
-        return False
-    errors = response.json()["error"]["errors"]
-    domains = [i["domain"] for i in errors]
-    return "usageLimits" in domains
-
-
-def metadata_isdir(metadata):
-    return metadata["mimeType"] == MIME_GOOGLE_APPS_FOLDER
-
-
 @only_once
 def shared_token_warning():
     logger.warning(
