@@ -75,13 +75,7 @@ def _should_test_gdrive():
         return True
     elif os.getenv("DVC_TEST_GDRIVE") == "false":
         return False
-    oauth_storage = os.path.join(
-        Config.get_global_config_dir(),
-        "gdrive-oauth2",
-        "068b8e92002dd24414a9995a80726a14",
-    )
-    if os.path.exists(oauth_storage):
-        return True
+    return True
 
 
 def _should_test_gcp():
