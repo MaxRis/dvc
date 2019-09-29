@@ -14,12 +14,7 @@ from dvc.scheme import Schemes
 from dvc.path_info import CloudURLInfo
 from dvc.remote.base import RemoteBASE
 from dvc.config import Config
-from dvc.remote.gdrive.utils import (
-    TrackFileReadProgress,
-    only_once,
-    shared_token_warning,
-)
-from dvc.exceptions import DvcException
+from dvc.remote.gdrive.utils import TrackFileReadProgress
 from dvc.progress import progress
 
 
