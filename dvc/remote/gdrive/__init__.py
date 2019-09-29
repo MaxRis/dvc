@@ -52,7 +52,7 @@ class RemoteGDrive(RemoteBASE):
         self.cache_root_content()
 
     def drive(self):
-        GoogleAuth.DEFAULT_SETTINGS['client_config_backend'] = "settings"
+        GoogleAuth.DEFAULT_SETTINGS["client_config_backend"] = "settings"
         gauth = GoogleAuth(settings_file=self.GOOGLE_AUTH_SETTINGS_PATH)
         gauth.CommandLineAuth()
         return GoogleDrive(gauth)
@@ -60,10 +60,16 @@ class RemoteGDrive(RemoteBASE):
     def cache_root_content(self):
         print("get_path_id %d" % self.root_content_cached)
         if not self.root_content_cached:
-            for dirs_list in self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % self.path_info.netloc, 'maxResults': 256}):
+            for dirs_list in self.gdrive.ListFile(
+                {
+                    "q": "'%s' in parents and trashed=false"
+                    % self.path_info.netloc,
+                    "maxResults": 256,
+                }
+            ):
                 for dir1 in dirs_list:
-                    print("List dir %s" % dir1['title'])
-                    self.root_dirs_list[dir1['title']] = dir1['id']
+                    print("List dir %s" % dir1["title"])
+                    self.root_dirs_list[dir1["title"]] = dir1["id"]
             self.root_content_cached = True
             print("All root dirs are cached %d" % self.root_content_cached)
 
@@ -72,27 +78,40 @@ class RemoteGDrive(RemoteBASE):
         parts = path_info.path.split("/")
 
         if parts and (parts[0] in self.root_dirs_list):
-            print('%s found in cache and parent_id now is %s' % (parts[0], self.root_dirs_list[parts[0]]))
+            print(
+                "%s found in cache and parent_id now is %s"
+                % (parts[0], self.root_dirs_list[parts[0]])
+            )
             parent_id = self.root_dirs_list[parts[0]]
             file_id = self.root_dirs_list[parts[0]]
             parts.pop(0)
         else:
             parent_id = path_info.netloc
-        file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % parent_id}).GetList()
+        file_list = self.gdrive.ListFile(
+            {"q": "'%s' in parents and trashed=false" % parent_id}
+        ).GetList()
 
         for part in parts:
             file_id = ""
             for f in file_list:
-                if f['title'] == part:
-                    file_id = f['id']
-                    file_list = self.gdrive.ListFile({'q': "'%s' in parents and trashed=false" % file_id}).GetList()
-                    parent_id = f['id']
+                if f["title"] == part:
+                    file_id = f["id"]
+                    file_list = self.gdrive.ListFile(
+                        {"q": "'%s' in parents and trashed=false" % file_id}
+                    ).GetList()
+                    parent_id = f["id"]
                     break
-            if (file_id == ""):
+            if file_id == "":
                 if create:
-                    gdrive_file = self.gdrive.CreateFile({'title': part, "parents" : [{"id" : parent_id}], "mimeType": "application/vnd.google-apps.folder"})
+                    gdrive_file = self.gdrive.CreateFile(
+                        {
+                            "title": part,
+                            "parents": [{"id": parent_id}],
+                            "mimeType": "application/vnd.google-apps.folder",
+                        }
+                    )
                     gdrive_file.Upload()
-                    file_id = gdrive_file['id']
+                    file_id = gdrive_file["id"]
                 else:
                     break
         return file_id
@@ -110,7 +129,7 @@ class RemoteGDrive(RemoteBASE):
 
     def _upload(self, from_file, to_info, name, no_progress_bar):
         print("Upload %s %s %s" % (from_file, to_info, name))
-        
+
         dirname = to_info.parent
         if dirname:
             parent_id = self.get_path_id(dirname, True)
@@ -118,7 +137,9 @@ class RemoteGDrive(RemoteBASE):
             parent_id = to_info.netloc
 
         print("Parent id:", parent_id)
-        file1 = self.gdrive.CreateFile({'title': to_info.name, "parents" : [{"id" : parent_id}]})
+        file1 = self.gdrive.CreateFile(
+            {"title": to_info.name, "parents": [{"id": parent_id}]}
+        )
 
         from_file = open(from_file, "rb")
         if not no_progress_bar:
@@ -130,7 +151,7 @@ class RemoteGDrive(RemoteBASE):
 
     def _download(self, from_info, to_file, name, no_progress_bar):
         file_id = self.get_path_id(from_info)
-        gdrive_file = self.gdrive.CreateFile({'id': file_id})
+        gdrive_file = self.gdrive.CreateFile({"id": file_id})
         gdrive_file.GetContentFile(to_file)
-        if (not no_progress_bar):
+        if not no_progress_bar:
             progress.update_target(name, 1, 1)
